@@ -1,0 +1,62 @@
+name: lanproxy-server-deploy
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. 检出项目源码
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 2. 配置 JDK 环境（支持缓存 Maven 依赖以加速后续构建）
+    - name: Set up JDK 8
+      uses: actions/setup-java@v4
+      with:
+        java-version: '8'
+        distribution: 'temurin'
+        cache: 'maven'
+
+    # 3. 运行 Maven 编译与测试
+    - name: Build with Maven
+      run: mvn -B clean verify
+       
+    - name: Start App Module
+      run: |
+        echo "正在后台启动 Java 应用..."
+        nohup java -jar proxy-server/target/*.jar > app.log 2>&1 &
+        sleep 5 # 等待 5 秒让应用完成基础初始化
+
+
+    - name: Health Check
+      run: |
+        echo "等待服务初始化..."
+        TIMEOUT=30
+        while [ $TIMEOUT -gt 0 ]; do
+          # 发送请求检查服务状态（根据您的实际路由修改，如 /actuator/health 或 / ）
+          if curl -s http://localhost:8080/ > /dev/null; then
+            echo "服务启动成功！"
+            exit 0
+          fi
+          sleep 2
+          TIMEOUT=$((TIMEOUT-2))
+          echo "服务尚未就绪，继续等待..."
+        done
+        
+        echo "❌ 错误：服务在 30 秒内未能成功启动！"
+        echo "=== 打印应用日志 ==="
+        cat app.log
+        exit 1
+
+    # 6. 执行您需要的后续操作（例如：运行自动化 E2E 接口测试）
+    - name: Run E2E Integration Tests
+      run: |
+        echo "开始对运行中的模块执行接口测试..."
+        # 示例：请求您的后台接口
+        curl -f http://localhost:8080/api/v1/test
